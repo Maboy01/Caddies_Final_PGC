@@ -4,6 +4,8 @@ videos_160/
 # Modelos entrenados (archivos binarios grandes)
 *.pt
 *.pth
+# Excepción: modelo principal de la app
+!model_results/cnn_lstm/cnn_lstm_model.pt
 
 # Caché de Python
 __pycache__/

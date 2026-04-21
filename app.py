@@ -159,7 +159,7 @@ def pagina_inicio() -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("Caddies disponibles", disponibles)
     c2.metric("Mis reservas activas", reservas_act)
-    c3.metric("Socio", "Juan García")
+    c3.metric("Socio", st.session_state.usuario["nombre"])
 
     st.markdown("---")
     st.markdown("### ¿Qué quieres hacer hoy?")

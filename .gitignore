@@ -1,0 +1,31 @@
+# Videos del dataset (demasiado grandes para git)
+videos_160/
+
+# Modelos entrenados (archivos binarios grandes)
+*.pt
+*.pth
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+
+# Archivos internos de Claude
+.claude/
+
+# Archivo de contexto interno
+context.md
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Variables de entorno
+.env

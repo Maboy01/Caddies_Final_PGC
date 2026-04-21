@@ -40,6 +40,13 @@ CADDIES_INICIALES = [
 BADGE = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
 ESTADO_ICONO = {"activa": "🟢", "cancelada": "🔴", "completada": "🔵"}
 
+USUARIOS = {
+    "cesar":    {"nombre": "Cesar",    "password": "cesar123",    "rol": "Socio"},
+    "karol":    {"nombre": "Karol",    "password": "karol123",    "rol": "Socio"},
+    "michael":  {"nombre": "Michael",  "password": "michael123",  "rol": "Socio"},
+    "esteban":  {"nombre": "Esteban",  "password": "esteban123",  "rol": "Socio"},
+}
+
 CLUB_INFO = {
     "wood": ("🪵 Wood", "Palo largo — ideal para drives y fairway. Tu swing tiene el arco y la potencia para maximizar distancia."),
     "iron": ("⛳ Iron",  "Hierro — ideal para aproximaciones. Tu swing es preciso y controlado, perfecto para distancias medias."),
@@ -88,6 +95,8 @@ def predecir_swing(video_bytes: bytes) -> tuple[str, float, dict]:
 # ── Estado ─────────────────────────────────────────────────────────────────────
 
 def init_state() -> None:
+    if "usuario"           not in st.session_state:
+        st.session_state.usuario           = None
     if "caddies"           not in st.session_state:
         st.session_state.caddies           = [c.copy() for c in CADDIES_INICIALES]
     if "reservas"          not in st.session_state:
@@ -117,6 +126,28 @@ def cop(valor: int) -> str:
 
 
 # ── Páginas ────────────────────────────────────────────────────────────────────
+
+def pagina_login() -> None:
+    col_izq, col_centro, col_der = st.columns([1, 1.2, 1])
+    with col_centro:
+        st.markdown("## ⛳ Club Serrezuela")
+        st.markdown("### Iniciar sesión")
+        st.markdown("---")
+
+        with st.form("form_login"):
+            usuario_input = st.text_input("Usuario")
+            password_input = st.text_input("Contraseña", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+
+        if submitted:
+            key = usuario_input.strip().lower()
+            user = USUARIOS.get(key)
+            if user and password_input == user["password"]:
+                st.session_state.usuario = user
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos.")
+
 
 def pagina_inicio() -> None:
     st.markdown("## Bienvenido al Club Serrezuela")
@@ -431,16 +462,22 @@ def main() -> None:
 
     init_state()
 
+    if st.session_state.usuario is None:
+        pagina_login()
+        return
+
+    usuario = st.session_state.usuario
+
     # Sidebar
     with st.sidebar:
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("---")
 
         paginas = [
-            ("🏠 Inicio",         "inicio"),
-            ("🏌️ Reservar Caddie", "reservar"),
-            ("📋 Mis Reservas",    "mis_reservas"),
-            ("🎯 Analiza tu Swing","swing"),
+            ("🏠 Inicio",          "inicio"),
+            ("🏌️ Reservar Caddie",  "reservar"),
+            ("📋 Mis Reservas",     "mis_reservas"),
+            ("🎯 Analiza tu Swing", "swing"),
         ]
         for label, page in paginas:
             if st.button(label, use_container_width=True, key=f"nav_{page}"):
@@ -448,8 +485,12 @@ def main() -> None:
                 st.rerun()
 
         st.markdown("---")
-        st.markdown("**Socio:** Juan García")
+        st.markdown(f"**{usuario['rol']}:** {usuario['nombre']}")
         st.caption("Club Serrezuela")
+        if st.button("Cerrar sesión", use_container_width=True):
+            st.session_state.usuario = None
+            st.session_state.page = "inicio"
+            st.rerun()
 
     # Router
     page = st.session_state.page

@@ -113,7 +113,7 @@ def estrellas(rating: float) -> str:
 
 
 def cop(valor: int) -> str:
-    return f"${valor:,}".replace(",", ".")
+    return f"\\${valor:,}".replace(",", ".")
 
 
 # ── Páginas ────────────────────────────────────────────────────────────────────

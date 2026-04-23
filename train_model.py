@@ -38,8 +38,8 @@ RANDOM_STATE = 42
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train CNN+LSTM GolfDB model.")
     parser.add_argument("--max-videos", type=int, default=0)
-    parser.add_argument("--no-golf-dir", type=Path, default=None,
-                        help="Directory with non-golf videos (subfolders or flat).")
+    parser.add_argument("--no-golf-dir", type=Path, nargs="+", default=None,
+                        help="One or more directories with non-golf videos.")
     parser.add_argument("--max-no-golf", type=int, default=0,
                         help="Max no-golf videos to include (0 = all).")
     parser.add_argument("--sequence-length", type=int, default=24)

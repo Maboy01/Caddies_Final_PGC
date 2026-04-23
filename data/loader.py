@@ -56,12 +56,16 @@ def load_metadata(csv_path: Path, videos_dir: Path, max_videos: int) -> pd.DataF
     return dataframe.reset_index(drop=True)
 
 
-def load_no_golf_metadata(no_golf_dir: Path, max_videos: int = 0) -> pd.DataFrame:
-    print("Loading no-golf (human activity) metadata...")
-    video_paths = list(no_golf_dir.rglob("*.mp4"))
+def load_no_golf_metadata(no_golf_dirs: list[Path], max_videos: int = 0) -> pd.DataFrame:
+    print("Loading no-golf metadata...")
+    video_paths = []
+    for directory in no_golf_dirs:
+        found = list(directory.rglob("*.mp4"))
+        print(f"   {directory.name}: {len(found)} videos")
+        video_paths.extend(found)
 
     if not video_paths:
-        print("   No videos found in no-golf directory.")
+        print("   No videos found in no-golf directories.")
         return pd.DataFrame(columns=["video_path", "club", "events"])
 
     dataframe = pd.DataFrame({
@@ -73,7 +77,7 @@ def load_no_golf_metadata(no_golf_dir: Path, max_videos: int = 0) -> pd.DataFram
     if max_videos > 0 and len(dataframe) > max_videos:
         dataframe = dataframe.sample(n=max_videos, random_state=RANDOM_STATE)
 
-    print(f"   No-golf videos found: {len(dataframe)}")
+    print(f"   Total no-golf videos: {len(dataframe)}")
     return dataframe.reset_index(drop=True)
 
 

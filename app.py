@@ -424,7 +424,7 @@ def pagina_swing() -> None:
             st.error("No se pudo procesar el video. Intenta con otro archivo.")
             return
 
-        if confianza < 0.55:
+        if confianza < 0.85:
             st.markdown("---")
             st.error(
                 f"No se detectó un swing de golf válido en el video "
@@ -449,10 +449,7 @@ def pagina_swing() -> None:
                 st.progress(prob, text=f"{etiqueta}: {prob * 100:.1f}%")
 
         st.markdown("---")
-        if confianza >= 0.75:
-            st.success(f"**{nombre_club}** — {descripcion}")
-        else:
-            st.warning(f"El modelo no está del todo seguro, pero sugiere **{nombre_club}**. {descripcion}")
+        st.success(f"**{nombre_club}** — {descripcion}")
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────

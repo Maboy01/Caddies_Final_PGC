@@ -53,12 +53,10 @@ CADDIES_INICIALES = [
     {"id": 9, "nombre": "Camilo Ríos",      "categoria": "3ra", "experiencia": "2 meses",  "calificacion": 3.5, "disponible": True,  "rondas": 12},
 ]
 
-<<<<<<< Updated upstream
-BADGE      = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
-=======
+
 # Etiquetas de categoría con emoji para mostrar en la UI
-BADGE       = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
->>>>>>> Stashed changes
+BADGE = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
+
 ESTADO_ICONO = {"activa": "🟢", "cancelada": "🔴", "completada": "🔵"}
 
 # Credenciales de usuarios del sistema (solo socios del club)
@@ -157,14 +155,10 @@ def predecir_swing(video_bytes: bytes) -> tuple[str, float, dict]:
     try:
         # Extrae frames del video (sin eventos: usa todo el video)
         frames = load_video_sequence(tmp, np.array([], dtype=np.int32), seq_len, frame_size)
-<<<<<<< Updated upstream
-        tensor = torch.from_numpy(frames).unsqueeze(0)
-        with torch.no_grad():
-=======
+
         tensor = torch.from_numpy(frames).unsqueeze(0)  # Agrega dimensión de batch: (1, T, C, H, W)
 
         with torch.no_grad():  # Sin gradientes: solo inferencia
->>>>>>> Stashed changes
             probs = F.softmax(model(tensor), dim=1).squeeze().numpy()
 
         idx        = int(np.argmax(probs))       # Índice de la clase con mayor probabilidad
@@ -218,12 +212,6 @@ def recomendar_combinado(
 # ── Estado ─────────────────────────────────────────────────────────────────────
 
 def init_state() -> None:
-<<<<<<< Updated upstream
-    if "usuario"          not in st.session_state:
-        st.session_state.usuario          = None
-    if "bolsa"            not in st.session_state:
-        st.session_state.bolsa            = None
-=======
     """
     Inicializa las variables del estado de sesión de Streamlit si no existen.
 
@@ -239,7 +227,9 @@ def init_state() -> None:
     """
     if "usuario"          not in st.session_state:
         st.session_state.usuario          = None
->>>>>>> Stashed changes
+    if "bolsa"            not in st.session_state:
+        st.session_state.bolsa            = None
+
     if "caddies"          not in st.session_state:
         st.session_state.caddies          = [c.copy() for c in CADDIES_INICIALES]
     if "reservas"         not in st.session_state:
@@ -296,16 +286,12 @@ def cop(valor: int) -> str:
 
     Retorna una cadena con formato "$X.XXX" usando puntos como separador de miles.
     """
-    return f"\\${valor:,}".replace(",", ".")
+    return f"${valor:,}".replace(",", ".")
 
 
 # ── Páginas ────────────────────────────────────────────────────────────────────
 
 def pagina_login() -> None:
-<<<<<<< Updated upstream
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-=======
     """
     Muestra el formulario de autenticación del sistema.
 
@@ -316,9 +302,9 @@ def pagina_login() -> None:
 
     El formulario se centra visualmente usando tres columnas de Streamlit.
     """
-    col_izq, col_centro, col_der = st.columns([1, 1.2, 1])
+    _, col_centro, _ = st.columns([1, 1.2, 1])
     with col_centro:
->>>>>>> Stashed changes
+
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("### Iniciar sesión")
         st.markdown("---")
@@ -327,11 +313,7 @@ def pagina_login() -> None:
             password_input = st.text_input("Contraseña", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
         if submitted:
-<<<<<<< Updated upstream
             key  = usuario_input.strip().lower()
-=======
-            key  = usuario_input.strip().lower()   # Normaliza a minúsculas
->>>>>>> Stashed changes
             user = USUARIOS.get(key)
             if user and password_input == user["password"]:
                 st.session_state.usuario = user
@@ -410,10 +392,6 @@ def pagina_inicio() -> None:
     st.markdown("## Bienvenido al Club Serrezuela")
     st.markdown("---")
 
-<<<<<<< Updated upstream
-=======
-    # Calcula métricas en tiempo real desde el estado de sesión
->>>>>>> Stashed changes
     disponibles  = sum(1 for c in st.session_state.caddies if c["disponible"])
     reservas_act = sum(1 for r in st.session_state.reservas if r["estado"] == "activa")
 
@@ -529,11 +507,7 @@ def _confirmar_reserva(caddie: dict) -> None:
     with col1:
         if st.button("Confirmar y pagar", type="primary", use_container_width=True):
             reserva = {
-<<<<<<< Updated upstream
                 "id":                 random.randint(1000, 9999),
-=======
-                "id":                 random.randint(1000, 9999),  # ID único de 4 dígitos
->>>>>>> Stashed changes
                 "caddie":             caddie.copy(),
                 "precio_total":       precio,
                 "anticipo":           anticipo,
@@ -590,14 +564,7 @@ def pagina_reservar() -> None:
 
     if modo == "Elegir caddie específico":
         filtro = st.selectbox("Filtrar por categoría", ["Todas", "1ra", "2da", "3ra"])
-<<<<<<< Updated upstream
         lista  = [c for c in st.session_state.caddies if filtro == "Todas" or c["categoria"] == filtro]
-=======
-        lista  = [
-            c for c in st.session_state.caddies
-            if filtro == "Todas" or c["categoria"] == filtro
-        ]
->>>>>>> Stashed changes
         for caddie in lista:
             _tarjeta_caddie(caddie)
     else:
@@ -667,11 +634,7 @@ def pagina_mis_reservas() -> None:
         caddie    = reserva["caddie"]
         ahora     = datetime.now()
         activa    = reserva["estado"] == "activa"
-<<<<<<< Updated upstream
         en_tiempo = ahora < reserva["limite_cancelacion"]
-=======
-        en_tiempo = ahora < reserva["limite_cancelacion"]  # Dentro de las 8 horas
->>>>>>> Stashed changes
 
         with st.container(border=True):
             icono = ESTADO_ICONO.get(reserva["estado"], "⚪")
@@ -823,7 +786,6 @@ def pagina_swing() -> None:
 
         # Recomendación combinada
         st.markdown("---")
-<<<<<<< Updated upstream
         st.markdown("### Recomendación final")
 
         resultado = recomendar_combinado(yardas, bolsa, clase, confianza)
@@ -854,18 +816,6 @@ def pagina_swing() -> None:
 
         if confianza < 0.55:
             st.info("Intenta con un video con mejor iluminación y ángulo lateral claro para mejorar la precisión del modelo.")
-=======
-        # Mensaje de recomendación basado en el nivel de certeza del modelo
-        if confianza >= 0.75:
-            st.success(f"**{nombre_club}** — {descripcion}")
-        elif confianza >= 0.55:
-            st.warning(f"El modelo no está del todo seguro, pero sugiere **{nombre_club}**. {descripcion}")
-        else:
-            st.info(
-                "El modelo tiene poca certeza. Intenta con un video con mejor iluminación "
-                "y ángulo lateral claro."
-            )
->>>>>>> Stashed changes
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -901,10 +851,6 @@ def main() -> None:
 
     usuario = st.session_state.usuario
 
-<<<<<<< Updated upstream
-=======
-    # --- Barra lateral de navegación ---
->>>>>>> Stashed changes
     with st.sidebar:
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("---")
@@ -923,7 +869,6 @@ def main() -> None:
 
         st.markdown("---")
         st.markdown(f"**{usuario['rol']}:** {usuario['nombre']}")
-<<<<<<< Updated upstream
 
         bolsa = st.session_state.bolsa
         n_palos = len(bolsa["palos"])
@@ -940,15 +885,6 @@ def main() -> None:
             st.session_state.page    = "inicio"
             st.rerun()
 
-=======
-        st.caption("Club Serrezuela")
-        if st.button("Cerrar sesión", use_container_width=True):
-            st.session_state.usuario = None
-            st.session_state.page    = "inicio"
-            st.rerun()
-
-    # --- Router de páginas ---
->>>>>>> Stashed changes
     page = st.session_state.page
     if   page == "inicio":       pagina_inicio()
     elif page == "reservar":     pagina_reservar()

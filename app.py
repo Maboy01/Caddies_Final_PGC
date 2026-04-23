@@ -286,7 +286,7 @@ def cop(valor: int) -> str:
 
     Retorna una cadena con formato "$X.XXX" usando puntos como separador de miles.
     """
-    return f"${valor:,}".replace(",", ".")
+    return f"\\${valor:,}".replace(",", ".")
 
 
 # ── Páginas ────────────────────────────────────────────────────────────────────

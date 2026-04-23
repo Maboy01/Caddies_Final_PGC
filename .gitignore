@@ -1,5 +1,6 @@
 # Videos del dataset (demasiado grandes para git)
 videos_160/
+Human Activity Recognition - Video Dataset/
 
 # Modelos entrenados (archivos binarios grandes)
 *.pt

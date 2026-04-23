@@ -56,6 +56,27 @@ def load_metadata(csv_path: Path, videos_dir: Path, max_videos: int) -> pd.DataF
     return dataframe.reset_index(drop=True)
 
 
+def load_no_golf_metadata(no_golf_dir: Path, max_videos: int = 0) -> pd.DataFrame:
+    print("Loading no-golf (human activity) metadata...")
+    video_paths = list(no_golf_dir.rglob("*.mp4"))
+
+    if not video_paths:
+        print("   No videos found in no-golf directory.")
+        return pd.DataFrame(columns=["video_path", "club", "events"])
+
+    dataframe = pd.DataFrame({
+        "video_path": [str(p) for p in video_paths],
+        "club": "no_golf",
+        "events": "[]",
+    })
+
+    if max_videos > 0 and len(dataframe) > max_videos:
+        dataframe = dataframe.sample(n=max_videos, random_state=RANDOM_STATE)
+
+    print(f"   No-golf videos found: {len(dataframe)}")
+    return dataframe.reset_index(drop=True)
+
+
 def build_video_tensors(
     dataframe: pd.DataFrame,
     label_encoder: LabelEncoder,

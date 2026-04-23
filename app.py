@@ -48,8 +48,9 @@ USUARIOS = {
 }
 
 CLUB_INFO = {
-    "wood": ("🪵 Wood", "Palo largo — ideal para drives y fairway. Tu swing tiene el arco y la potencia para maximizar distancia."),
-    "iron": ("⛳ Iron",  "Hierro — ideal para aproximaciones. Tu swing es preciso y controlado, perfecto para distancias medias."),
+    "wood":     ("🪵 Wood",    "Palo largo — ideal para drives y fairway. Tu swing tiene el arco y la potencia para maximizar distancia."),
+    "iron":     ("⛳ Iron",    "Hierro — ideal para aproximaciones. Tu swing es preciso y controlado, perfecto para distancias medias."),
+    "no_golf":  ("❌ No Golf", "No se detectó un swing de golf en el video."),
 }
 
 
@@ -424,19 +425,22 @@ def pagina_swing() -> None:
             st.error("No se pudo procesar el video. Intenta con otro archivo.")
             return
 
-        if confianza < 0.85:
-            st.markdown("---")
-            st.error(
-                f"No se detectó un swing de golf válido en el video "
-                f"(confianza: {confianza * 100:.1f}%). "
-                "Asegúrate de subir un video con un swing completo y ángulo lateral claro."
-            )
-            return
-
         st.markdown("---")
         st.markdown("### Resultado")
 
         nombre_club, descripcion = CLUB_INFO.get(clase, (clase, ""))
+
+        if clase == "no_golf":
+            st.warning(
+                f"**No se detectó un swing de golf en el video** "
+                f"(confianza: {confianza * 100:.1f}%). "
+                "Asegúrate de subir un video con un swing completo y ángulo lateral claro."
+            )
+            st.markdown("**Distribución de probabilidades:**")
+            for cls, prob in sorted(todas.items(), key=lambda x: -x[1]):
+                etiqueta = CLUB_INFO.get(cls, (cls,))[0]
+                st.progress(prob, text=f"{etiqueta}: {prob * 100:.1f}%")
+            return
 
         col1, col2 = st.columns(2)
         with col1:

@@ -13,7 +13,7 @@ import numpy as np
 import torch
 from sklearn.preprocessing import LabelEncoder
 
-from data.loader import load_metadata, build_video_tensors
+from data.loader import load_metadata, load_no_golf_metadata, build_video_tensors
 from model.classifier import CnnLstmClassifier
 from training.trainer import train_cnn_lstm
 from training.metrics import (
@@ -38,6 +38,10 @@ RANDOM_STATE = 42
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train CNN+LSTM GolfDB model.")
     parser.add_argument("--max-videos", type=int, default=0)
+    parser.add_argument("--no-golf-dir", type=Path, default=None,
+                        help="Directory with non-golf videos (subfolders or flat).")
+    parser.add_argument("--max-no-golf", type=int, default=0,
+                        help="Max no-golf videos to include (0 = all).")
     parser.add_argument("--sequence-length", type=int, default=24)
     parser.add_argument("--frame-size", type=int, default=112)
     parser.add_argument("--epochs", type=int, default=25)
@@ -88,9 +92,18 @@ def main() -> None:
     print(f"Device: {device}")
     print(f"Max videos: {args.max_videos if args.max_videos else 'all'}\n")
 
+    import pandas as pd
+
     dataframe = load_metadata(CSV_PATH, VIDEOS_DIR, args.max_videos)
+
+    if args.no_golf_dir is not None:
+        no_golf_df = load_no_golf_metadata(args.no_golf_dir, args.max_no_golf)
+        dataframe = pd.concat([dataframe, no_golf_df], ignore_index=True)
+        dataframe = dataframe.sample(frac=1, random_state=RANDOM_STATE).reset_index(drop=True)
+
     label_encoder = LabelEncoder()
     label_encoder.fit(dataframe["club"].astype(str))
+    print(f"   Classes: {label_encoder.classes_.tolist()}")
     sequences, targets = build_video_tensors(
         dataframe, label_encoder, args.sequence_length, args.frame_size,
     )

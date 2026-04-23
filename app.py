@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""App de reserva de caddies y análisis de swing — Club Serrezuela."""
+"""
+app.py — Aplicación web del Club de Golf Serrezuela.
+
+Construida con Streamlit, ofrece dos funcionalidades principales:
+    1. Sistema de reservas de caddies: los socios pueden reservar caddies
+       por categoría (1ra, 2da, 3ra) o elegir uno específico, con un
+       sistema de anticipo del 50% y ventana de cancelación de 8 horas.
+    2. Análisis de swing con IA: el socio sube un video de su swing y el
+       modelo CNN+LSTM predice qué tipo de palo (wood/iron) se adapta
+       mejor a su técnica.
+
+Para ejecutar:
+    streamlit run app.py
+"""
 from __future__ import annotations
 
 import random
@@ -13,6 +26,7 @@ import streamlit as st
 import torch
 import torch.nn.functional as F
 
+# Agrega la carpeta del proyecto al path para importar módulos locales
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from data.video import load_video_sequence
@@ -20,11 +34,13 @@ from model.classifier import CnnLstmClassifier
 
 # ── Constantes ─────────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR   = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "model_results" / "cnn_lstm" / "cnn_lstm_model.pt"
 
+# Precios por ronda según categoría del caddie
 PRECIOS = {"1ra": 90_000, "2da": 70_000, "3ra": 60_000}
 
+# Lista inicial de caddies con sus datos (se copia al estado de sesión al iniciar)
 CADDIES_INICIALES = [
     {"id": 1, "nombre": "Carlos Gómez",     "categoria": "1ra", "experiencia": "5 años",   "calificacion": 4.8, "disponible": True,  "rondas": 312},
     {"id": 2, "nombre": "Luis Martínez",    "categoria": "1ra", "experiencia": "4 años",   "calificacion": 4.6, "disponible": True,  "rondas": 241},
@@ -37,9 +53,15 @@ CADDIES_INICIALES = [
     {"id": 9, "nombre": "Camilo Ríos",      "categoria": "3ra", "experiencia": "2 meses",  "calificacion": 3.5, "disponible": True,  "rondas": 12},
 ]
 
+<<<<<<< Updated upstream
 BADGE      = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
+=======
+# Etiquetas de categoría con emoji para mostrar en la UI
+BADGE       = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
+>>>>>>> Stashed changes
 ESTADO_ICONO = {"activa": "🟢", "cancelada": "🔴", "completada": "🔵"}
 
+# Credenciales de usuarios del sistema (solo socios del club)
 USUARIOS = {
     "cesar":   {"nombre": "Cesar",   "password": "cesar123",   "rol": "Socio"},
     "karol":   {"nombre": "Karol",   "password": "karol123",   "rol": "Socio"},
@@ -47,6 +69,7 @@ USUARIOS = {
     "esteban": {"nombre": "Esteban", "password": "esteban123", "rol": "Socio"},
 }
 
+# Descripción de cada tipo de palo para mostrar al usuario tras el análisis de swing
 CLUB_INFO = {
     "wood": ("🪵 Wood", "Palo largo — ideal para drives y fairway. Tu swing tiene el arco y la potencia para maximizar distancia."),
     "iron": ("⛳ Iron",  "Hierro — ideal para aproximaciones. Tu swing es preciso y controlado, perfecto para distancias medias."),
@@ -77,39 +100,80 @@ TIPO_PALO: dict[str, str] = {
 
 @st.cache_resource(show_spinner="Cargando modelo de IA...")
 def cargar_modelo():
+    """
+    Carga el modelo CNN+LSTM desde el archivo checkpoint (.pt) guardado
+    por train_model.py.
+
+    El decorador @st.cache_resource hace que el modelo se cargue una sola
+    vez y quede en memoria para todas las peticiones subsecuentes, evitando
+    recargar los pesos en cada análisis de swing.
+
+    Retorna una tupla (model, classes, seq_len, frame_size).
+    Si el archivo no existe, retorna (None, None, 24, 112) para que el
+    llamador pueda mostrar un mensaje de error apropiado.
+    """
     if not MODEL_PATH.exists():
-        return None, None, 24, 112
+        return None, None, 24, 112  # Modelo no entrenado todavía
+
     checkpoint = torch.load(MODEL_PATH, map_location="cpu", weights_only=False)
-    classes    = checkpoint["classes"]
-    seq_len    = checkpoint.get("sequence_length", 24)
-    frame_size = checkpoint.get("frame_size", 112)
+    classes    = checkpoint["classes"]                   # ['iron', 'wood']
+    seq_len    = checkpoint.get("sequence_length", 24)   # Frames por secuencia
+    frame_size = checkpoint.get("frame_size", 112)       # Tamaño de cada frame
+
     model = CnnLstmClassifier(num_classes=len(classes))
     model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
+    model.eval()  # Modo inferencia: desactiva dropout y BN de entrenamiento
     return model, classes, seq_len, frame_size
 
 
 def predecir_swing(video_bytes: bytes) -> tuple[str, float, dict]:
+    """
+    Recibe un video en bytes, lo procesa con el modelo CNN+LSTM y predice
+    qué tipo de palo se adapta mejor al swing del jugador.
+
+    Pasos:
+        1. Guarda el video en un archivo temporal (necesario para OpenCV)
+        2. Extrae la secuencia de frames con load_video_sequence
+        3. Pasa los frames por el modelo para obtener logits
+        4. Aplica softmax para convertir logits a probabilidades
+        5. Retorna la clase con mayor probabilidad, su confianza y
+           el diccionario completo de probabilidades por clase
+
+    Args:
+        video_bytes: Contenido del archivo de video en bytes
+
+    Retorna (clase_predicha, confianza, {clase: probabilidad}).
+    En caso de error, retorna ("error", 0.0, {}).
+    """
     model, classes, seq_len, frame_size = cargar_modelo()
     if model is None:
         return "error", 0.0, {}
 
+    # Crea archivo temporal porque OpenCV necesita una ruta en disco
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
         f.write(video_bytes)
         tmp = Path(f.name)
 
     try:
+        # Extrae frames del video (sin eventos: usa todo el video)
         frames = load_video_sequence(tmp, np.array([], dtype=np.int32), seq_len, frame_size)
+<<<<<<< Updated upstream
         tensor = torch.from_numpy(frames).unsqueeze(0)
         with torch.no_grad():
+=======
+        tensor = torch.from_numpy(frames).unsqueeze(0)  # Agrega dimensión de batch: (1, T, C, H, W)
+
+        with torch.no_grad():  # Sin gradientes: solo inferencia
+>>>>>>> Stashed changes
             probs = F.softmax(model(tensor), dim=1).squeeze().numpy()
-        idx        = int(np.argmax(probs))
-        pred_class = classes[idx]
-        confianza  = float(probs[idx])
-        todas      = {cls: float(p) for cls, p in zip(classes, probs)}
+
+        idx        = int(np.argmax(probs))       # Índice de la clase con mayor probabilidad
+        pred_class = classes[idx]                # Nombre de esa clase ('wood' o 'iron')
+        confianza  = float(probs[idx])           # Probabilidad de la clase ganadora
+        todas      = {cls: float(p) for cls, p in zip(classes, probs)}  # Todas las probs
         return pred_class, confianza, todas
     finally:
-        tmp.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)  # Limpia el archivo temporal siempre, incluso si hay error
 
 
 # ── Lógica de recomendación ────────────────────────────────────────────────────
@@ -154,10 +218,28 @@ def recomendar_combinado(
 # ── Estado ─────────────────────────────────────────────────────────────────────
 
 def init_state() -> None:
+<<<<<<< Updated upstream
     if "usuario"          not in st.session_state:
         st.session_state.usuario          = None
     if "bolsa"            not in st.session_state:
         st.session_state.bolsa            = None
+=======
+    """
+    Inicializa las variables del estado de sesión de Streamlit si no existen.
+
+    st.session_state persiste entre re-renders de la página (Streamlit
+    re-ejecuta todo el script en cada interacción del usuario).
+
+    Variables inicializadas:
+        usuario          : Usuario autenticado (None = no logueado)
+        caddies          : Lista mutable de caddies con su disponibilidad actual
+        reservas         : Lista de reservas realizadas en la sesión
+        page             : Página activa ('inicio', 'reservar', 'mis_reservas', 'swing')
+        caddie_pendiente : Caddie seleccionado esperando confirmación de reserva
+    """
+    if "usuario"          not in st.session_state:
+        st.session_state.usuario          = None
+>>>>>>> Stashed changes
     if "caddies"          not in st.session_state:
         st.session_state.caddies          = [c.copy() for c in CADDIES_INICIALES]
     if "reservas"         not in st.session_state:
@@ -171,11 +253,32 @@ def init_state() -> None:
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
 def ir_a(page: str) -> None:
+    """
+    Cambia la página activa de la aplicación y fuerza un re-render de Streamlit.
+
+    Args:
+        page: Identificador de la página destino
+              ('inicio', 'reservar', 'mis_reservas', 'swing')
+    """
     st.session_state.page = page
     st.rerun()
 
 
 def estrellas(rating: float) -> str:
+    """
+    Convierte una calificación numérica (1.0 – 5.0) a representación visual
+    con símbolos de estrella.
+
+    Ejemplos:
+        4.8 → "★★★★★"   (4 llenas + redondea a completa)
+        4.2 → "★★★★☆"
+        3.6 → "★★★½☆"   (3 llenas + media estrella + 1 vacía)
+
+    Args:
+        rating: Calificación entre 0 y 5
+
+    Retorna una cadena con caracteres ★ (llena), ½ (media) y ☆ (vacía).
+    """
     llenas = int(rating)
     media  = 1 if (rating - llenas) >= 0.5 else 0
     vacias = 5 - llenas - media
@@ -183,14 +286,39 @@ def estrellas(rating: float) -> str:
 
 
 def cop(valor: int) -> str:
+    """
+    Formatea un valor entero como moneda colombiana (COP).
+
+    Ejemplo: cop(90000) → "$90.000"
+
+    Args:
+        valor: Monto en pesos colombianos (entero)
+
+    Retorna una cadena con formato "$X.XXX" usando puntos como separador de miles.
+    """
     return f"\\${valor:,}".replace(",", ".")
 
 
 # ── Páginas ────────────────────────────────────────────────────────────────────
 
 def pagina_login() -> None:
+<<<<<<< Updated upstream
     _, col, _ = st.columns([1, 1.2, 1])
     with col:
+=======
+    """
+    Muestra el formulario de autenticación del sistema.
+
+    Valida usuario y contraseña contra el diccionario USUARIOS.
+    Si las credenciales son correctas, guarda el usuario en session_state
+    y redirige a la página de inicio mediante st.rerun().
+    Si son incorrectas, muestra un mensaje de error.
+
+    El formulario se centra visualmente usando tres columnas de Streamlit.
+    """
+    col_izq, col_centro, col_der = st.columns([1, 1.2, 1])
+    with col_centro:
+>>>>>>> Stashed changes
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("### Iniciar sesión")
         st.markdown("---")
@@ -199,11 +327,15 @@ def pagina_login() -> None:
             password_input = st.text_input("Contraseña", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
         if submitted:
+<<<<<<< Updated upstream
             key  = usuario_input.strip().lower()
+=======
+            key  = usuario_input.strip().lower()   # Normaliza a minúsculas
+>>>>>>> Stashed changes
             user = USUARIOS.get(key)
             if user and password_input == user["password"]:
                 st.session_state.usuario = user
-                st.rerun()
+                st.rerun()  # Re-renderiza para mostrar la app principal
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
@@ -265,9 +397,23 @@ def pagina_bolsa() -> None:
 
 
 def pagina_inicio() -> None:
+    """
+    Página de bienvenida con métricas rápidas y accesos directos.
+
+    Muestra:
+        - Número de caddies disponibles en este momento
+        - Número de reservas activas del usuario
+        - Nombre del socio logueado
+        - Botones para ir a Reservar o a Analizar Swing
+        - Tarjetas informativas con precios por categoría de caddie
+    """
     st.markdown("## Bienvenido al Club Serrezuela")
     st.markdown("---")
 
+<<<<<<< Updated upstream
+=======
+    # Calcula métricas en tiempo real desde el estado de sesión
+>>>>>>> Stashed changes
     disponibles  = sum(1 for c in st.session_state.caddies if c["disponible"])
     reservas_act = sum(1 for r in st.session_state.reservas if r["estado"] == "activa")
 
@@ -314,6 +460,21 @@ def pagina_inicio() -> None:
 
 
 def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
+    """
+    Renderiza la tarjeta de información de un caddie individual.
+
+    Muestra:
+        - Nombre, categoría con badge
+        - Calificación en estrellas y número
+        - Años de experiencia y rondas realizadas
+        - Precio total y anticipo (50%)
+        - Estado de disponibilidad
+        - Botón "Reservar" (activo si está disponible) o "No disponible" (deshabilitado)
+
+    Args:
+        caddie : Diccionario con los datos del caddie
+        boton  : Si True muestra el botón de reserva (False para vistas de solo lectura)
+    """
     precio = PRECIOS[caddie["categoria"]]
     with st.container(border=True):
         col_info, col_btn = st.columns([4, 1])
@@ -328,6 +489,8 @@ def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
         with col_btn:
             if boton:
                 if caddie["disponible"]:
+                    # Al hacer clic guarda el caddie en session_state y re-renderiza
+                    # para mostrar el flujo de confirmación
                     if st.button("Reservar", key=f"res_{caddie['id']}", type="primary"):
                         st.session_state.caddie_pendiente = caddie
                         st.rerun()
@@ -336,8 +499,22 @@ def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
 
 
 def _confirmar_reserva(caddie: dict) -> None:
+    """
+    Muestra el resumen de la reserva y los botones de confirmación/cancelación.
+
+    Cuando el usuario confirma:
+        - Crea un registro de reserva con ID aleatorio, fecha y límite de cancelación
+        - Marca el caddie como no disponible en session_state
+        - Agrega la reserva a la lista de reservas del usuario
+        - Limpia caddie_pendiente para volver al flujo normal
+
+    La ventana de cancelación con reembolso es de 8 horas desde la confirmación.
+
+    Args:
+        caddie: Diccionario con los datos del caddie a reservar
+    """
     precio   = PRECIOS[caddie["categoria"]]
-    anticipo = precio // 2
+    anticipo = precio // 2  # 50% de anticipo
 
     st.markdown("### Confirmar reserva")
     with st.container(border=True):
@@ -352,7 +529,11 @@ def _confirmar_reserva(caddie: dict) -> None:
     with col1:
         if st.button("Confirmar y pagar", type="primary", use_container_width=True):
             reserva = {
+<<<<<<< Updated upstream
                 "id":                 random.randint(1000, 9999),
+=======
+                "id":                 random.randint(1000, 9999),  # ID único de 4 dígitos
+>>>>>>> Stashed changes
                 "caddie":             caddie.copy(),
                 "precio_total":       precio,
                 "anticipo":           anticipo,
@@ -360,12 +541,13 @@ def _confirmar_reserva(caddie: dict) -> None:
                 "limite_cancelacion": datetime.now() + timedelta(hours=8),
                 "estado":             "activa",
             }
+            # Marca el caddie como no disponible para otros socios
             for c in st.session_state.caddies:
                 if c["id"] == caddie["id"]:
                     c["disponible"] = False
                     break
             st.session_state.reservas.append(reserva)
-            st.session_state.caddie_pendiente = None
+            st.session_state.caddie_pendiente = None  # Limpia el pendiente
             st.success(
                 f"Reserva #{reserva['id']} confirmada. "
                 f"Se cobró el anticipo de {cop(anticipo)}. "
@@ -380,8 +562,21 @@ def _confirmar_reserva(caddie: dict) -> None:
 
 
 def pagina_reservar() -> None:
+    """
+    Página para seleccionar y reservar un caddie.
+
+    Ofrece dos modos de elección:
+        1. Elegir caddie específico: muestra la lista filtrable por categoría
+           con tarjeta de cada caddie y botón de reserva individual.
+        2. Caddie aleatorio por categoría: muestra tres botones (3ra, 2da, 1ra)
+           que seleccionan aleatoriamente un caddie disponible de esa categoría.
+
+    Si hay un caddie_pendiente en session_state, muestra el flujo de
+    confirmación de reserva en lugar de la lista.
+    """
     st.markdown("## 🏌️ Reservar Caddie")
 
+    # Si ya se eligió un caddie, pasa directamente a la confirmación
     if st.session_state.caddie_pendiente:
         _confirmar_reserva(st.session_state.caddie_pendiente)
         return
@@ -395,7 +590,14 @@ def pagina_reservar() -> None:
 
     if modo == "Elegir caddie específico":
         filtro = st.selectbox("Filtrar por categoría", ["Todas", "1ra", "2da", "3ra"])
+<<<<<<< Updated upstream
         lista  = [c for c in st.session_state.caddies if filtro == "Todas" or c["categoria"] == filtro]
+=======
+        lista  = [
+            c for c in st.session_state.caddies
+            if filtro == "Todas" or c["categoria"] == filtro
+        ]
+>>>>>>> Stashed changes
         for caddie in lista:
             _tarjeta_caddie(caddie)
     else:
@@ -403,7 +605,11 @@ def pagina_reservar() -> None:
         col1, col2, col3 = st.columns(3)
 
         def solicitar_aleatorio(cat: str) -> None:
-            disponibles = [c for c in st.session_state.caddies if c["categoria"] == cat and c["disponible"]]
+            """Elige aleatoriamente un caddie disponible de la categoría dada."""
+            disponibles = [
+                c for c in st.session_state.caddies
+                if c["categoria"] == cat and c["disponible"]
+            ]
             if not disponibles:
                 st.error(f"No hay caddies de {cat} categoría disponibles ahora.")
                 return
@@ -434,6 +640,21 @@ def pagina_reservar() -> None:
 
 
 def pagina_mis_reservas() -> None:
+    """
+    Muestra todas las reservas del usuario en la sesión actual.
+
+    Para cada reserva activa calcula el tiempo restante dentro de la
+    ventana de cancelación con reembolso (8 horas desde la reserva):
+
+        - Si está en tiempo: muestra botón de cancelación con reembolso total
+          del anticipo y el tiempo restante.
+        - Si el tiempo expiró: ofrece cancelación sin reembolso (el anticipo
+          se transfiere al caddie).
+
+    Al cancelar:
+        - Cambia el estado de la reserva a "cancelada"
+        - Libera al caddie (disponible=True) para otros socios
+    """
     st.markdown("## 📋 Mis Reservas")
 
     if not st.session_state.reservas:
@@ -446,7 +667,11 @@ def pagina_mis_reservas() -> None:
         caddie    = reserva["caddie"]
         ahora     = datetime.now()
         activa    = reserva["estado"] == "activa"
+<<<<<<< Updated upstream
         en_tiempo = ahora < reserva["limite_cancelacion"]
+=======
+        en_tiempo = ahora < reserva["limite_cancelacion"]  # Dentro de las 8 horas
+>>>>>>> Stashed changes
 
         with st.container(border=True):
             icono = ESTADO_ICONO.get(reserva["estado"], "⚪")
@@ -460,12 +685,14 @@ def pagina_mis_reservas() -> None:
 
             if activa:
                 if en_tiempo:
+                    # Calcula y muestra el tiempo restante para cancelar con reembolso
                     restante = reserva["limite_cancelacion"] - ahora
                     h = int(restante.total_seconds() // 3600)
                     m = int((restante.total_seconds() % 3600) // 60)
                     st.warning(f"Puedes cancelar con reembolso durante {h}h {m}m más.")
                     if st.button(f"Cancelar reserva #{reserva['id']}", key=f"cancel_{i}"):
                         reserva["estado"] = "cancelada"
+                        # Libera al caddie para que pueda ser reservado de nuevo
                         for c in st.session_state.caddies:
                             if c["id"] == caddie["id"]:
                                 c["disponible"] = True
@@ -473,6 +700,7 @@ def pagina_mis_reservas() -> None:
                         st.success(f"Reserva cancelada. Se reembolsarán {cop(reserva['anticipo'])}.")
                         st.rerun()
                 else:
+                    # Fuera de la ventana: anticipo ya no se reembolsa
                     st.error("Ya no puedes cancelar con reembolso. El anticipo será transferido al caddie si no te presentas.")
                     if st.button(f"Cancelar sin reembolso #{reserva['id']}", key=f"cancel_nr_{i}"):
                         reserva["estado"] = "cancelada"
@@ -488,6 +716,21 @@ def pagina_mis_reservas() -> None:
 
 
 def pagina_swing() -> None:
+    """
+    Página de análisis de swing con inteligencia artificial.
+
+    Flujo:
+        1. Verifica que el modelo esté entrenado y disponible.
+        2. Permite al usuario subir un video de su swing (mp4/avi/mov/mkv).
+        3. Muestra consejos de grabación mientras no hay video cargado.
+        4. Al presionar "Analizar swing", llama a predecir_swing() y muestra:
+            - Palo recomendado (wood o iron) y nivel de confianza
+            - Barra de progreso con la distribución de probabilidades
+            - Mensaje de recomendación según el nivel de confianza:
+                ≥75%: mensaje positivo (alta certeza)
+                55-75%: advertencia (certeza media)
+                <55%: sugerencia de mejorar el video
+    """
     st.markdown("## 🎯 Analiza tu Swing")
     st.markdown("---")
 
@@ -541,6 +784,7 @@ def pagina_swing() -> None:
     )
 
     if archivo is None:
+        # Muestra guía de grabación cuando no hay video
         with st.container(border=True):
             st.markdown("**Consejos para un buen video:**")
             st.markdown(
@@ -552,7 +796,7 @@ def pagina_swing() -> None:
             )
         return
 
-    st.video(archivo)
+    st.video(archivo)  # Muestra el video al usuario antes del análisis
 
     if st.button("Analizar swing", type="primary", use_container_width=True):
         with st.spinner("Analizando tu swing..."):
@@ -572,12 +816,14 @@ def pagina_swing() -> None:
             st.metric("Confianza del modelo", f"{confianza * 100:.1f}%")
         with col2:
             st.markdown("**Distribución de probabilidades:**")
+            # Ordena de mayor a menor probabilidad
             for cls, prob in sorted(todas.items(), key=lambda x: -x[1]):
                 etiqueta = CLUB_INFO.get(cls, (cls,))[0]
                 st.progress(prob, text=f"{etiqueta}: {prob * 100:.1f}%")
 
         # Recomendación combinada
         st.markdown("---")
+<<<<<<< Updated upstream
         st.markdown("### Recomendación final")
 
         resultado = recomendar_combinado(yardas, bolsa, clase, confianza)
@@ -608,11 +854,35 @@ def pagina_swing() -> None:
 
         if confianza < 0.55:
             st.info("Intenta con un video con mejor iluminación y ángulo lateral claro para mejorar la precisión del modelo.")
+=======
+        # Mensaje de recomendación basado en el nivel de certeza del modelo
+        if confianza >= 0.75:
+            st.success(f"**{nombre_club}** — {descripcion}")
+        elif confianza >= 0.55:
+            st.warning(f"El modelo no está del todo seguro, pero sugiere **{nombre_club}**. {descripcion}")
+        else:
+            st.info(
+                "El modelo tiene poca certeza. Intenta con un video con mejor iluminación "
+                "y ángulo lateral claro."
+            )
+>>>>>>> Stashed changes
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """
+    Punto de entrada de la aplicación Streamlit.
+
+    Responsabilidades:
+        1. Configura la página (título, ícono, layout ancho)
+        2. Inicializa el estado de sesión
+        3. Si no hay usuario logueado: muestra solo la página de login
+        4. Si hay usuario logueado: muestra la barra lateral de navegación
+           y renderiza la página activa según st.session_state.page
+
+    Streamlit ejecuta esta función completa en cada interacción del usuario.
+    """
     st.set_page_config(
         page_title="Club Serrezuela — Caddies",
         page_icon="⛳",
@@ -631,10 +901,15 @@ def main() -> None:
 
     usuario = st.session_state.usuario
 
+<<<<<<< Updated upstream
+=======
+    # --- Barra lateral de navegación ---
+>>>>>>> Stashed changes
     with st.sidebar:
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("---")
 
+        # Botones de navegación — cada clic actualiza session_state.page y recarga
         paginas = [
             ("🏠 Inicio",          "inicio"),
             ("🏌️ Reservar Caddie",  "reservar"),
@@ -648,6 +923,7 @@ def main() -> None:
 
         st.markdown("---")
         st.markdown(f"**{usuario['rol']}:** {usuario['nombre']}")
+<<<<<<< Updated upstream
 
         bolsa = st.session_state.bolsa
         n_palos = len(bolsa["palos"])
@@ -664,6 +940,15 @@ def main() -> None:
             st.session_state.page    = "inicio"
             st.rerun()
 
+=======
+        st.caption("Club Serrezuela")
+        if st.button("Cerrar sesión", use_container_width=True):
+            st.session_state.usuario = None
+            st.session_state.page    = "inicio"
+            st.rerun()
+
+    # --- Router de páginas ---
+>>>>>>> Stashed changes
     page = st.session_state.page
     if   page == "inicio":       pagina_inicio()
     elif page == "reservar":     pagina_reservar()

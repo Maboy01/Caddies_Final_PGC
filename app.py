@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import random
 import sys
+import time
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -120,6 +121,8 @@ def init_state() -> None:
         st.session_state.page             = "inicio"
     if "caddie_pendiente" not in st.session_state:
         st.session_state.caddie_pendiente = None
+    if "close_sidebar" not in st.session_state:
+        st.session_state.close_sidebar = False
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -488,6 +491,7 @@ def main() -> None:
         page_title="Club Serrezuela — Caddies",
         page_icon="⛳",
         layout="wide",
+        initial_sidebar_state="collapsed",
     )
 
     init_state()
@@ -512,6 +516,7 @@ def main() -> None:
         for label, page in paginas:
             if st.button(label, use_container_width=True, key=f"nav_{page}"):
                 st.session_state.page = page
+                st.session_state.close_sidebar = True
                 st.rerun()
 
         st.markdown("---")
@@ -521,6 +526,22 @@ def main() -> None:
             st.session_state.usuario = None
             st.session_state.page = "inicio"
             st.rerun()
+
+    if st.session_state.close_sidebar:
+        st.session_state.close_sidebar = False
+        st.iframe(f"""
+            <script>
+                setTimeout(function() {{
+                    var doc = window.parent.document;
+                    var sidebar = doc.querySelector('[data-testid="stSidebar"]');
+                    if (sidebar) {{
+                        var btn = sidebar.querySelector('button');
+                        if (btn) btn.click();
+                    }}
+                }}, 300);
+            </script>
+            <!-- {time.time()} -->
+        """, height=1)
 
     # Router
     page = st.session_state.page

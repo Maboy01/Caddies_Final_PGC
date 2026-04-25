@@ -7,9 +7,10 @@ import random
 import sys
 import time
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from pathlib import Path
 
+import bcrypt
 import numpy as np
 import streamlit as st
 import torch
@@ -30,6 +31,15 @@ def get_supabase() -> Client:
     return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
 
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
+
 def parse_dt(s: str) -> datetime:
     dt = datetime.fromisoformat(s)
     return dt.replace(tzinfo=None) if dt.tzinfo else dt
@@ -41,27 +51,8 @@ MODEL_PATH = BASE_DIR / "model_results" / "cnn_lstm" / "cnn_lstm_model.pt"
 
 PRECIOS = {"1ra": 90_000, "2da": 70_000, "3ra": 60_000}
 
-CADDIES_INICIALES = [
-    {"id": 1, "nombre": "Carlos Gómez",     "categoria": "1ra", "experiencia": "5 años",   "calificacion": 4.8, "disponible": True,  "rondas": 312},
-    {"id": 2, "nombre": "Luis Martínez",    "categoria": "1ra", "experiencia": "4 años",   "calificacion": 4.6, "disponible": True,  "rondas": 241},
-    {"id": 3, "nombre": "Felipe Vargas",    "categoria": "1ra", "experiencia": "3 años",   "calificacion": 4.5, "disponible": False, "rondas": 198},
-    {"id": 4, "nombre": "Juan Pérez",       "categoria": "2da", "experiencia": "2 años",   "calificacion": 4.2, "disponible": True,  "rondas": 134},
-    {"id": 5, "nombre": "Andrés Torres",    "categoria": "2da", "experiencia": "1.5 años", "calificacion": 4.0, "disponible": True,  "rondas": 89},
-    {"id": 6, "nombre": "Diego Salcedo",    "categoria": "2da", "experiencia": "1 año",    "calificacion": 3.9, "disponible": False, "rondas": 62},
-    {"id": 7, "nombre": "Miguel Rodríguez", "categoria": "3ra", "experiencia": "8 meses",  "calificacion": 3.8, "disponible": True,  "rondas": 41},
-    {"id": 8, "nombre": "Santiago López",   "categoria": "3ra", "experiencia": "4 meses",  "calificacion": 3.6, "disponible": True,  "rondas": 28},
-    {"id": 9, "nombre": "Camilo Ríos",      "categoria": "3ra", "experiencia": "2 meses",  "calificacion": 3.5, "disponible": True,  "rondas": 12},
-]
-
 BADGE = {"1ra": "🥇 1ra Categoría", "2da": "🥈 2da Categoría", "3ra": "🥉 3ra Categoría"}
 ESTADO_ICONO = {"activa": "🟢", "en_curso": "🟡", "cancelada": "🔴", "completada": "🔵"}
-
-USUARIOS = {
-    "cesar":    {"nombre": "Cesar",    "password": "cesar123",    "rol": "Socio"},
-    "karol":    {"nombre": "Karol",    "password": "karol123",    "rol": "Socio"},
-    "michael":  {"nombre": "Michael",  "password": "michael123",  "rol": "Socio"},
-    "esteban":  {"nombre": "Esteban",  "password": "esteban123",  "rol": "Socio"},
-}
 
 CLUB_INFO = {
     "wood":     ("🪵 Wood",    "Palo largo — ideal para drives y fairway. Tu swing tiene el arco y la potencia para maximizar distancia."),
@@ -163,13 +154,13 @@ def pagina_login() -> None:
             sb = get_supabase()
             session_data: dict = {"username": key}
 
-            result = sb.table("usuarios").select("*").eq("username", key).eq("password", password_input).execute()
-            if result.data:
+            result = sb.table("usuarios").select("*").eq("username", key).execute()
+            if result.data and verify_password(password_input, result.data[0]["password"]):
                 st.session_state.usuario = result.data[0]
                 session_data["rol"] = "Socio"
             else:
-                caddie = sb.table("caddies").select("*").eq("username", key).eq("password", password_input).execute()
-                if caddie.data:
+                caddie = sb.table("caddies").select("*").eq("username", key).execute()
+                if caddie.data and verify_password(password_input, caddie.data[0]["password"]):
                     data = caddie.data[0]
                     st.session_state.usuario = {
                         "username":  data["username"],
@@ -181,6 +172,8 @@ def pagina_login() -> None:
                     session_data["caddie_id"] = data["id"]
 
             if st.session_state.usuario:
+                expires = (datetime.now() + timedelta(hours=24)).isoformat()
+                session_data["expires_at"] = expires
                 session = sb.table("sessions").insert(session_data).execute()
                 st.query_params["token"] = session.data[0]["token"]
                 st.rerun()
@@ -225,17 +218,17 @@ def pagina_inicio() -> None:
         with st.container(border=True):
             st.markdown("#### 🥉 3ra Categoría")
             st.write("Sin experiencia mínima requerida")
-            st.markdown(f"**{cop(60_000)}** por ronda")
+            st.markdown(f"**{cop(PRECIOS['3ra'])}** por ronda")
     with col2:
         with st.container(border=True):
             st.markdown("#### 🥈 2da Categoría")
             st.write("1-2 años de experiencia")
-            st.markdown(f"**{cop(70_000)}** por ronda")
+            st.markdown(f"**{cop(PRECIOS['2da'])}** por ronda")
     with col3:
         with st.container(border=True):
             st.markdown("#### 🥇 1ra Categoría")
             st.write("3 o más años de experiencia")
-            st.markdown(f"**{cop(90_000)}** por ronda")
+            st.markdown(f"**{cop(PRECIOS['1ra'])}** por ronda")
 
 
 def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
@@ -263,9 +256,8 @@ def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
 
 
 def _confirmar_reserva(caddie: dict) -> None:
-    from datetime import date, timedelta as td, time as _time
-    precio   = PRECIOS[caddie["categoria"]]
-    anticipo = precio // 2
+    from datetime import timedelta as td, time as _time
+    precio = PRECIOS[caddie["categoria"]]
 
     hora_actual = datetime.now().time()
     if hora_actual >= _time(18, 0) or hora_actual < _time(6, 0):
@@ -275,23 +267,22 @@ def _confirmar_reserva(caddie: dict) -> None:
             st.rerun()
         return
 
-    st.markdown("### Confirmar reserva")
-    with st.container(border=True):
-        st.markdown(f"**Caddie:** {caddie['nombre']}")
-        st.markdown(f"**Categoría:** {BADGE[caddie['categoria']]}")
-        st.markdown(f"**Calificación:** {estrellas(caddie['calificacion'])} {caddie['calificacion']}")
-        st.markdown(f"**Precio total:** {cop(precio)}")
-        st.markdown(f"**Anticipo a pagar ahora (50%):** {cop(anticipo)}")
-        st.info("Tienes **8 horas** para cancelar y recuperar el anticipo completo.")
-
     hoy = date.today()
     min_fecha = hoy if hoy.weekday() != 0 else hoy + td(days=1)
     fecha_juego = st.date_input(
-        "Selecciona la fecha de juego",
+        "Selecciona la fecha de inicio",
         value=min_fecha,
         min_value=hoy,
         max_value=hoy + td(days=30),
     )
+
+    dias = st.number_input("¿Por cuántos días?", min_value=1, max_value=3, value=1, step=1)
+    fecha_fin = fecha_juego + td(days=int(dias) - 1)
+    if dias > 1:
+        st.info(f"El caddie estará reservado del **{fecha_juego.strftime('%d/%m/%Y')}** al **{fecha_fin.strftime('%d/%m/%Y')}** ({dias} días).")
+
+    precio_total = precio * int(dias)
+    anticipo     = precio_total // 2
 
     turnos = [
         f"{h:02d}:{m:02d}"
@@ -299,14 +290,24 @@ def _confirmar_reserva(caddie: dict) -> None:
         for m in range(0, 60, 10)
         if not (h == 10 and m > 0)
     ]
-    st.markdown("**A que hora es tu tee time?**")
+    st.markdown("**¿A qué hora es tu tee time?**")
     hora_juego = st.selectbox("Selecciona el tee time de salida", turnos)
+
+    st.markdown("### Confirmar reserva")
+    with st.container(border=True):
+        st.markdown(f"**Caddie:** {caddie['nombre']}")
+        st.markdown(f"**Categoría:** {BADGE[caddie['categoria']]}")
+        st.markdown(f"**Calificación:** {estrellas(caddie['calificacion'])} {caddie['calificacion']}")
+        st.markdown(f"**Días reservados:** {dias} × {cop(precio)} = **{cop(precio_total)}**")
+        st.markdown(f"**Anticipo a pagar ahora (50%):** {cop(anticipo)}")
+        st.info("Tienes **8 horas** para cancelar y recuperar el anticipo completo.")
 
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Confirmar y pagar", type="primary", use_container_width=True):
-            if fecha_juego.weekday() == 0:
-                st.error("Los lunes el campo está cerrado. Elige otro día.")
+            dias_rango = [fecha_juego + td(days=d) for d in range(int(dias))]
+            if any(d.weekday() == 0 for d in dias_rango):
+                st.error("El rango de días incluye un lunes. El campo está cerrado los lunes. Elige otra fecha.")
                 return
 
             sb = get_supabase()
@@ -317,34 +318,35 @@ def _confirmar_reserva(caddie: dict) -> None:
                 st.error(f"Ya tienes una reserva activa para el {fecha_juego.strftime('%d/%m/%Y')}. Elige otro día.")
                 return
 
-            slot_count = sb.table("reservas").select("id").eq("fecha_juego", fecha_juego.isoformat()).eq("hora_juego", hora_juego).eq("estado", "activa").execute()
+            slot_count = sb.table("reservas").select("id").eq("fecha_juego", fecha_juego.isoformat()).eq("hora_juego", hora_juego).in_("estado", ["activa", "en_curso"]).execute()
             if len(slot_count.data) >= 4:
                 st.error(f"El turno de las {hora_juego} del {fecha_juego.strftime('%d/%m/%Y')} ya está completo (4/4). Elige otro horario.")
                 return
 
-            reserva_id = random.randint(1000, 9999)
             fecha      = datetime.now()
             limite     = fecha + timedelta(hours=8)
-            sb.table("reservas").insert({
-                "id":                 reserva_id,
+            resultado  = sb.table("reservas").insert({
                 "usuario_username":   username,
                 "caddie_id":          caddie["id"],
-                "precio_total":       precio,
+                "precio_total":       precio_total,
                 "anticipo":           anticipo,
                 "fecha_reserva":      fecha.isoformat(),
                 "limite_cancelacion": limite.isoformat(),
                 "fecha_juego":        fecha_juego.isoformat(),
                 "hora_juego":         hora_juego,
                 "estado":             "activa",
+                "dias":               int(dias),
             }).execute()
+            reserva_id = resultado.data[0]["id"]
             sb.table("caddies").update({"disponible": False}).eq("id", caddie["id"]).execute()
             for c in st.session_state.caddies:
                 if c["id"] == caddie["id"]:
                     c["disponible"] = False
                     break
             st.session_state.caddie_pendiente = None
+            fecha_fin_str = f" al {fecha_fin.strftime('%d/%m/%Y')}" if dias > 1 else ""
             st.success(
-                f"Reserva #{reserva_id} confirmada para el {fecha_juego.strftime('%d/%m/%Y')} a las {hora_juego}. "
+                f"Reserva #{reserva_id} confirmada del {fecha_juego.strftime('%d/%m/%Y')}{fecha_fin_str} a las {hora_juego}. "
                 f"Se cobró el anticipo de {cop(anticipo)}. "
                 f"{caddie['nombre']} ha sido notificado."
             )
@@ -395,27 +397,27 @@ def pagina_reservar() -> None:
             with st.container(border=True):
                 st.markdown("#### 🥉 3ra Categoría")
                 st.write("Sin experiencia mínima")
-                st.markdown(f"**{cop(60_000)}** / ronda")
+                st.markdown(f"**{cop(PRECIOS['3ra'])}** / ronda")
                 if st.button("Solicitar 3ra", use_container_width=True):
                     solicitar_aleatorio("3ra")
         with col2:
             with st.container(border=True):
                 st.markdown("#### 🥈 2da Categoría")
                 st.write("1-2 años de experiencia")
-                st.markdown(f"**{cop(70_000)}** / ronda")
+                st.markdown(f"**{cop(PRECIOS['2da'])}** / ronda")
                 if st.button("Solicitar 2da", use_container_width=True):
                     solicitar_aleatorio("2da")
         with col3:
             with st.container(border=True):
                 st.markdown("#### 🥇 1ra Categoría")
                 st.write("3+ años de experiencia")
-                st.markdown(f"**{cop(90_000)}** / ronda")
+                st.markdown(f"**{cop(PRECIOS['1ra'])}** / ronda")
                 if st.button("Solicitar 1ra", use_container_width=True):
                     solicitar_aleatorio("1ra")
 
 
-@st.dialog("⭐ Calificar caddie")
-def dialogo_calificacion(reserva_id: int, caddie: dict) -> None:
+@st.dialog("🏁 Finalizar turno")
+def dialogo_calificacion(reserva_id: int, caddie: dict, saldo: int) -> None:
     st.markdown(f"¿Cómo estuvo **{caddie['nombre']}**?")
     calificacion = st.select_slider(
         "Tu calificación",
@@ -423,27 +425,27 @@ def dialogo_calificacion(reserva_id: int, caddie: dict) -> None:
         value=4.0,
         format_func=lambda x: f"{'★' * int(x)}{'½' if x % 1 else ''} ({x})",
     )
-    if st.button("Enviar calificación", type="primary", use_container_width=True):
+    st.markdown("---")
+    st.markdown(f"**Saldo a pagar al caddie:** {cop(saldo)}")
+    completar_pago = st.checkbox(f"Confirmar pago de {cop(saldo)} al caddie")
+    if not completar_pago:
+        st.caption("Debes confirmar el pago para finalizar el turno.")
+    if st.button("Confirmar", type="primary", use_container_width=True, disabled=not completar_pago):
         sb = get_supabase()
         sb.table("reservas").update({
-            "estado": "completada",
+            "estado":             "completada",
             "calificacion_socio": calificacion,
+            "pago_completado":    completar_pago,
         }).eq("id", reserva_id).execute()
-        sb.table("caddies").update({"disponible": True}).eq("id", caddie["id"]).execute()
-        todas = sb.table("reservas").select("calificacion_socio").eq("caddie_id", caddie["id"]).execute()
-        valores = [r["calificacion_socio"] for r in todas.data if r["calificacion_socio"] is not None]
-        if valores:
-            nueva_cal = round(sum(valores) / len(valores), 1)
-            sb.table("caddies").update({
-                "calificacion": nueva_cal,
-                "rondas": caddie["rondas"] + 1,
-            }).eq("id", caddie["id"]).execute()
-            for c in st.session_state.caddies:
-                if c["id"] == caddie["id"]:
-                    c["disponible"] = True
-                    c["calificacion"] = nueva_cal
-                    c["rondas"] = caddie["rondas"] + 1
-                    break
+        sb.table("caddies").update({
+            "disponible": True,
+            "rondas":     caddie["rondas"] + 1,
+        }).eq("id", caddie["id"]).execute()
+        for c in st.session_state.caddies:
+            if c["id"] == caddie["id"]:
+                c["disponible"] = True
+                c["rondas"] = caddie["rondas"] + 1
+                break
         st.rerun()
 
 
@@ -453,29 +455,38 @@ def pagina_mis_reservas() -> None:
     sb       = get_supabase()
     username = st.session_state.usuario["username"]
     result   = sb.table("reservas").select("*, caddies(*)").eq("usuario_username", username).neq("estado", "cancelada").order("fecha_reserva", desc=True).execute()
-    reservas = result.data
+    todas    = result.data
 
-    if not reservas:
+    if not todas:
         st.info("Aún no tienes reservas.")
         if st.button("Reservar un caddie", type="primary"):
             ir_a("reservar")
+        return
+
+    filtro = st.selectbox("Ver", ["Reservadas", "Completadas"], index=0, label_visibility="collapsed")
+
+    activas     = [r for r in todas if r["estado"] in ("activa", "en_curso")]
+    completadas = [r for r in todas if r["estado"] == "completada"]
+
+    reservas = activas if filtro == "Reservadas" else completadas
+
+    if not reservas:
+        st.info("No hay reservas en esta categoría.")
         return
 
     for i, reserva in enumerate(reservas):
         caddie     = reserva["caddies"]
         ahora      = datetime.now()
         estado     = reserva["estado"]
-        activa     = estado == "activa"
-        en_curso   = estado == "en_curso"
-        completada = estado == "completada"
-        en_tiempo  = ahora < parse_dt(reserva["limite_cancelacion"])
+        activa    = estado == "activa"
+        en_curso  = estado == "en_curso"
+        en_tiempo = ahora < parse_dt(reserva["limite_cancelacion"])
 
         fecha_juego_str = reserva.get("fecha_juego")
         hora_juego_str  = (reserva.get("hora_juego") or "")[:5]
         es_hoy_o_antes  = False
         if fecha_juego_str:
-            from datetime import date as _date
-            fj = _date.fromisoformat(fecha_juego_str)
+            fj = date.fromisoformat(fecha_juego_str)
             es_hoy_o_antes = fj <= ahora.date()
 
         with st.container(border=True):
@@ -487,7 +498,13 @@ def pagina_mis_reservas() -> None:
                 f"**Saldo pendiente:** {cop(reserva['precio_total'] - reserva['anticipo'])}"
             )
             hora_str = f" a las {hora_juego_str}" if hora_juego_str else ""
-            st.markdown(f"**Fecha de juego:** {fecha_juego_str or '—'}{hora_str}")
+            dias_reserva = reserva.get("dias") or 1
+            if dias_reserva > 1:
+                fecha_fin_r = date.fromisoformat(fecha_juego_str) + timedelta(days=dias_reserva - 1) if fecha_juego_str else None
+                fecha_fin_str = f" al {fecha_fin_r.strftime('%d/%m/%Y')}" if fecha_fin_r else ""
+                st.markdown(f"**Fechas:** {fecha_juego_str or '—'}{fecha_fin_str}{hora_str} ({dias_reserva} días)")
+            else:
+                st.markdown(f"**Fecha de juego:** {fecha_juego_str or '—'}{hora_str}")
             st.markdown(f"**Reservado el:** {parse_dt(reserva['fecha_reserva']).strftime('%d/%m/%Y %H:%M')}")
 
             if activa and es_hoy_o_antes:
@@ -526,12 +543,41 @@ def pagina_mis_reservas() -> None:
                         st.rerun()
             elif en_curso:
                 st.warning("El caddie está en turno activo.")
-                if st.button("🏁 Terminar turno", key=f"terminar_{i}", use_container_width=True, type="primary"):
-                    dialogo_calificacion(reserva["id"], caddie)
-            elif completada:
-                cal = reserva.get("calificacion_socio")
+                extra = int(PRECIOS[caddie["categoria"]] * 0.30)
+                st.caption(f"Total actual: {cop(reserva['precio_total'])}")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    ultimo = reserva.get("ultimo_hoyo_extra")
+                    ahora_utc = datetime.now()
+                    if ultimo:
+                        transcurrido = ahora_utc - parse_dt(ultimo)
+                        mins_restantes = 30 - int(transcurrido.total_seconds() // 60)
+                        bloqueado = transcurrido.total_seconds() < 1800
+                    else:
+                        bloqueado = False
+                        mins_restantes = 0
+
+                    if bloqueado:
+                        st.button(f"⛳ 9 hoyos más (+{cop(extra)})", key=f"hoyos_{i}", use_container_width=True, disabled=True)
+                        st.caption(f"Disponible en {mins_restantes} min.")
+                    else:
+                        if st.button(f"⛳ 9 hoyos más (+{cop(extra)})", key=f"hoyos_{i}", use_container_width=True):
+                            sb.table("reservas").update({
+                                "precio_total":      reserva["precio_total"] + extra,
+                                "ultimo_hoyo_extra": ahora_utc.isoformat(),
+                            }).eq("id", reserva["id"]).execute()
+                            st.rerun()
+                with col_b:
+                    if st.button("🏁 Terminar turno", key=f"terminar_{i}", use_container_width=True, type="primary"):
+                        saldo = reserva["precio_total"] - reserva["anticipo"]
+                        dialogo_calificacion(reserva["id"], caddie, saldo)
+            elif estado == "completada":
+                cal  = reserva.get("calificacion_socio")
+                pago = reserva.get("pago_completado")
                 if cal:
-                    st.success(f"Calificaste a {caddie['nombre']} con {estrellas(cal)} ({cal})")
+                    st.success(f"Tu calificación: {estrellas(cal)} ({cal})")
+                st.info("✅ Pago completado" if pago else "⏳ Pago pendiente")
+
 
 
 def pagina_swing() -> None:
@@ -627,7 +673,7 @@ def pagina_caddie() -> None:
     st.markdown("---")
     st.markdown("### 📋 Tus reservas activas")
 
-    result = sb.table("reservas").select("*").eq("caddie_id", caddie_id).eq("estado", "activa").order("fecha_reserva", desc=False).execute()
+    result = sb.table("reservas").select("*").eq("caddie_id", caddie_id).in_("estado", ["activa", "en_curso"]).order("fecha_reserva", desc=False).execute()
     reservas = result.data
 
     usernames = list({r["usuario_username"] for r in reservas})
@@ -680,7 +726,7 @@ def main() -> None:
         token = st.query_params.get("token")
         if token:
             sb = get_supabase()
-            session = sb.table("sessions").select("username, rol, caddie_id").eq("token", token).execute()
+            session = sb.table("sessions").select("username, rol, caddie_id").eq("token", token).gt("expires_at", datetime.now().isoformat()).execute()
             if session.data:
                 s = session.data[0]
                 if s.get("rol") == "Caddie" and s.get("caddie_id"):

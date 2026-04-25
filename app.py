@@ -350,7 +350,7 @@ def pagina_mis_reservas() -> None:
 
     sb       = get_supabase()
     username = st.session_state.usuario["username"]
-    result   = sb.table("reservas").select("*, caddies(*)").eq("usuario_username", username).order("fecha_reserva", desc=True).execute()
+    result   = sb.table("reservas").select("*, caddies(*)").eq("usuario_username", username).neq("estado", "cancelada").order("fecha_reserva", desc=True).execute()
     reservas = result.data
 
     if not reservas:

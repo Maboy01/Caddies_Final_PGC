@@ -160,10 +160,23 @@ def pagina_login() -> None:
 
         if submitted:
             key = usuario_input.strip().lower()
-            result = get_supabase().table("usuarios").select("*").eq("username", key).eq("password", password_input).execute()
+            sb = get_supabase()
+            result = sb.table("usuarios").select("*").eq("username", key).eq("password", password_input).execute()
             if result.data:
                 st.session_state.usuario = result.data[0]
-                session = get_supabase().table("sessions").insert({"username": key}).execute()
+            else:
+                caddie = sb.table("caddies").select("*").eq("username", key).eq("password", password_input).execute()
+                if caddie.data:
+                    data = caddie.data[0]
+                    st.session_state.usuario = {
+                        "username": data["username"],
+                        "nombre":   data["nombre"],
+                        "rol":      "Caddie",
+                        "caddie_id": data["id"],
+                    }
+
+            if st.session_state.usuario:
+                session = sb.table("sessions").insert({"username": key}).execute()
                 st.query_params["token"] = session.data[0]["token"]
                 st.rerun()
             else:
@@ -245,6 +258,7 @@ def _tarjeta_caddie(caddie: dict, boton: bool = True) -> None:
 
 
 def _confirmar_reserva(caddie: dict) -> None:
+    from datetime import date, timedelta as td
     precio   = PRECIOS[caddie["categoria"]]
     anticipo = precio // 2
 
@@ -257,21 +271,57 @@ def _confirmar_reserva(caddie: dict) -> None:
         st.markdown(f"**Anticipo a pagar ahora (50%):** {cop(anticipo)}")
         st.info("Tienes **8 horas** para cancelar y recuperar el anticipo completo.")
 
+    hoy = date.today()
+    min_fecha = hoy if hoy.weekday() != 0 else hoy + td(days=1)
+    fecha_juego = st.date_input(
+        "Selecciona la fecha de juego",
+        value=min_fecha,
+        min_value=hoy,
+        max_value=hoy + td(days=30),
+    )
+
+    turnos = [
+        f"{h:02d}:{m:02d}"
+        for h in range(6, 11)
+        for m in range(0, 60, 10)
+        if not (h == 10 and m > 0)
+    ]
+    st.markdown("**A que hora es tu tee time?**")
+    hora_juego = st.selectbox("Selecciona el tee time de salida", turnos)
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Confirmar y pagar", type="primary", use_container_width=True):
+            if fecha_juego.weekday() == 0:
+                st.error("Los lunes el campo está cerrado. Elige otro día.")
+                return
+
             sb = get_supabase()
+            username = st.session_state.usuario["username"]
+
+            existente = sb.table("reservas").select("id").eq("usuario_username", username).eq("fecha_juego", fecha_juego.isoformat()).eq("estado", "activa").execute()
+            if existente.data:
+                st.error(f"Ya tienes una reserva activa para el {fecha_juego.strftime('%d/%m/%Y')}. Elige otro día.")
+                return
+
+            slot_count = sb.table("reservas").select("id").eq("fecha_juego", fecha_juego.isoformat()).eq("hora_juego", hora_juego).eq("estado", "activa").execute()
+            if len(slot_count.data) >= 4:
+                st.error(f"El turno de las {hora_juego} del {fecha_juego.strftime('%d/%m/%Y')} ya está completo (4/4). Elige otro horario.")
+                return
+
             reserva_id = random.randint(1000, 9999)
             fecha      = datetime.now()
             limite     = fecha + timedelta(hours=8)
             sb.table("reservas").insert({
                 "id":                 reserva_id,
-                "usuario_username":   st.session_state.usuario["username"],
+                "usuario_username":   username,
                 "caddie_id":          caddie["id"],
                 "precio_total":       precio,
                 "anticipo":           anticipo,
                 "fecha_reserva":      fecha.isoformat(),
                 "limite_cancelacion": limite.isoformat(),
+                "fecha_juego":        fecha_juego.isoformat(),
+                "hora_juego":         hora_juego,
                 "estado":             "activa",
             }).execute()
             sb.table("caddies").update({"disponible": False}).eq("id", caddie["id"]).execute()
@@ -281,7 +331,7 @@ def _confirmar_reserva(caddie: dict) -> None:
                     break
             st.session_state.caddie_pendiente = None
             st.success(
-                f"Reserva #{reserva_id} confirmada. "
+                f"Reserva #{reserva_id} confirmada para el {fecha_juego.strftime('%d/%m/%Y')} a las {hora_juego}. "
                 f"Se cobró el anticipo de {cop(anticipo)}. "
                 f"{caddie['nombre']} ha sido notificado."
             )
@@ -379,6 +429,9 @@ def pagina_mis_reservas() -> None:
                 f"**Anticipo pagado:** {cop(reserva['anticipo'])}  |  "
                 f"**Saldo pendiente:** {cop(reserva['precio_total'] - reserva['anticipo'])}"
             )
+            hora = reserva.get("hora_juego") or ""
+            hora_str = f" a las {hora[:5]}" if hora else ""
+            st.markdown(f"**Fecha de juego:** {reserva['fecha_juego'] or '—'}{hora_str}")
             st.markdown(f"**Reservado el:** {parse_dt(reserva['fecha_reserva']).strftime('%d/%m/%Y %H:%M')}")
 
             if activa:
@@ -487,6 +540,61 @@ def pagina_swing() -> None:
         st.success(f"**{nombre_club}** — {descripcion}")
 
 
+def pagina_caddie() -> None:
+    usuario  = st.session_state.usuario
+    caddie_id = usuario["caddie_id"]
+    sb       = get_supabase()
+
+    caddie_data = sb.table("caddies").select("*").eq("id", caddie_id).execute().data[0]
+
+    st.markdown(f"## 🏌️ Bienvenido, {caddie_data['nombre']}")
+    st.markdown("---")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Categoría",    BADGE[caddie_data["categoria"]])
+    col2.metric("Calificación", f"{caddie_data['calificacion']} ★")
+    col3.metric("Rondas",       caddie_data["rondas"])
+
+    st.markdown("---")
+    st.markdown("### 📋 Tus reservas activas")
+
+    result = sb.table("reservas").select("*").eq("caddie_id", caddie_id).eq("estado", "activa").order("fecha_reserva", desc=False).execute()
+    reservas = result.data
+
+    usernames = list({r["usuario_username"] for r in reservas})
+    nombres_map = {}
+    if usernames:
+        socios = sb.table("usuarios").select("username, nombre").in_("username", usernames).execute()
+        nombres_map = {s["username"]: s["nombre"] for s in socios.data}
+
+    if not reservas:
+        st.info("No tienes reservas activas en este momento.")
+        return
+
+    for reserva in reservas:
+        socio_nombre = nombres_map.get(reserva["usuario_username"], reserva["usuario_username"])
+        fecha        = parse_dt(reserva["fecha_reserva"])
+        limite       = parse_dt(reserva["limite_cancelacion"])
+        ahora        = datetime.now()
+        en_tiempo    = ahora < limite
+
+        with st.container(border=True):
+            st.markdown(f"**Reserva #{reserva['id']}**")
+            st.markdown(f"**Socio:** {socio_nombre}")
+            hora = reserva.get("hora_juego") or ""
+            hora_str = f" a las {hora[:5]}" if hora else ""
+            st.markdown(f"**Fecha de juego:** {reserva.get('fecha_juego') or '—'}{hora_str}")
+            st.markdown(f"**Reservado el:** {fecha.strftime('%d/%m/%Y %H:%M')}")
+            st.markdown(f"**Pago total:** {cop(reserva['precio_total'])}  |  **Anticipo recibido:** {cop(reserva['anticipo'])}")
+            if en_tiempo:
+                restante = limite - ahora
+                h = int(restante.total_seconds() // 3600)
+                m = int((restante.total_seconds() % 3600) // 60)
+                st.warning(f"El socio puede cancelar con reembolso durante {h}h {m}m más.")
+            else:
+                st.success("Ya no puede cancelar. El anticipo es tuyo si no se presenta.")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -502,37 +610,51 @@ def main() -> None:
     if st.session_state.usuario is None:
         token = st.query_params.get("token")
         if token:
-            session = get_supabase().table("sessions").select("username").eq("token", token).execute()
+            sb = get_supabase()
+            session = sb.table("sessions").select("username").eq("token", token).execute()
             if session.data:
                 username = session.data[0]["username"]
-                result = get_supabase().table("usuarios").select("*").eq("username", username).execute()
+                result = sb.table("usuarios").select("*").eq("username", username).execute()
                 if result.data:
                     st.session_state.usuario = result.data[0]
                     st.rerun()
+                else:
+                    caddie = sb.table("caddies").select("*").eq("username", username).execute()
+                    if caddie.data:
+                        data = caddie.data[0]
+                        st.session_state.usuario = {
+                            "username":  data["username"],
+                            "nombre":    data["nombre"],
+                            "rol":       "Caddie",
+                            "caddie_id": data["id"],
+                        }
+                        st.rerun()
 
     if st.session_state.usuario is None:
         pagina_login()
         return
 
     usuario = st.session_state.usuario
+    es_caddie = usuario.get("rol") == "Caddie"
 
     # Sidebar
     with st.sidebar:
         st.markdown("## ⛳ Club Serrezuela")
         st.markdown("---")
 
-        paginas = [
-            ("🏠 Inicio",          "inicio"),
-            ("🏌️ Reservar Caddie",  "reservar"),
-            ("📋 Mis Reservas",     "mis_reservas"),
-            ("🎯 Analiza tu Swing", "swing"),
-        ]
-        for label, page in paginas:
-            if st.button(label, use_container_width=True, key=f"nav_{page}"):
-                st.session_state.page = page
-                st.query_params["page"] = page
-                st.session_state.close_sidebar = True
-                st.rerun()
+        if not es_caddie:
+            paginas = [
+                ("🏠 Inicio",          "inicio"),
+                ("🏌️ Reservar Caddie",  "reservar"),
+                ("📋 Mis Reservas",     "mis_reservas"),
+                ("🎯 Analiza tu Swing", "swing"),
+            ]
+            for label, page in paginas:
+                if st.button(label, use_container_width=True, key=f"nav_{page}"):
+                    st.session_state.page = page
+                    st.query_params["page"] = page
+                    st.session_state.close_sidebar = True
+                    st.rerun()
 
         st.markdown("---")
         st.markdown(f"**{usuario['rol']}:** {usuario['nombre']}")
@@ -563,11 +685,14 @@ def main() -> None:
         """, height=1)
 
     # Router
-    page = st.session_state.page
-    if   page == "inicio":       pagina_inicio()
-    elif page == "reservar":     pagina_reservar()
-    elif page == "mis_reservas": pagina_mis_reservas()
-    elif page == "swing":        pagina_swing()
+    if es_caddie:
+        pagina_caddie()
+    else:
+        page = st.session_state.page
+        if   page == "inicio":       pagina_inicio()
+        elif page == "reservar":     pagina_reservar()
+        elif page == "mis_reservas": pagina_mis_reservas()
+        elif page == "swing":        pagina_swing()
 
 
 if __name__ == "__main__":

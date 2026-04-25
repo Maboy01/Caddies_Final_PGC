@@ -118,7 +118,7 @@ def init_state() -> None:
         result = get_supabase().table("caddies").select("*").execute()
         st.session_state.caddies          = result.data
     if "page"             not in st.session_state:
-        st.session_state.page             = "inicio"
+        st.session_state.page             = st.query_params.get("page", "inicio")
     if "caddie_pendiente" not in st.session_state:
         st.session_state.caddie_pendiente = None
     if "close_sidebar" not in st.session_state:
@@ -129,6 +129,7 @@ def init_state() -> None:
 
 def ir_a(page: str) -> None:
     st.session_state.page = page
+    st.query_params["page"] = page
     st.rerun()
 
 
@@ -162,6 +163,8 @@ def pagina_login() -> None:
             result = get_supabase().table("usuarios").select("*").eq("username", key).eq("password", password_input).execute()
             if result.data:
                 st.session_state.usuario = result.data[0]
+                session = get_supabase().table("sessions").insert({"username": key}).execute()
+                st.query_params["token"] = session.data[0]["token"]
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
@@ -497,6 +500,17 @@ def main() -> None:
     init_state()
 
     if st.session_state.usuario is None:
+        token = st.query_params.get("token")
+        if token:
+            session = get_supabase().table("sessions").select("username").eq("token", token).execute()
+            if session.data:
+                username = session.data[0]["username"]
+                result = get_supabase().table("usuarios").select("*").eq("username", username).execute()
+                if result.data:
+                    st.session_state.usuario = result.data[0]
+                    st.rerun()
+
+    if st.session_state.usuario is None:
         pagina_login()
         return
 
@@ -516,6 +530,7 @@ def main() -> None:
         for label, page in paginas:
             if st.button(label, use_container_width=True, key=f"nav_{page}"):
                 st.session_state.page = page
+                st.query_params["page"] = page
                 st.session_state.close_sidebar = True
                 st.rerun()
 
@@ -523,6 +538,10 @@ def main() -> None:
         st.markdown(f"**{usuario['rol']}:** {usuario['nombre']}")
         st.caption("Club Serrezuela")
         if st.button("Cerrar sesión", use_container_width=True):
+            token = st.query_params.get("token")
+            if token:
+                get_supabase().table("sessions").delete().eq("token", token).execute()
+            st.query_params.clear()
             st.session_state.usuario = None
             st.session_state.page = "inicio"
             st.rerun()

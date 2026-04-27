@@ -888,7 +888,12 @@ def main() -> None:
     )
 
     st.markdown(
-        "<style>[data-testid='stToolbar'] {display: none;}</style>",
+        """<style>
+        [data-testid="stToolbar"] {display: none !important;}
+        [data-testid="stDecoration"] {display: none !important;}
+        header {visibility: hidden !important;}
+        .stDeployButton {display: none !important;}
+        </style>""",
         unsafe_allow_html=True,
     )
 

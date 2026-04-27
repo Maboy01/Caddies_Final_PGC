@@ -887,6 +887,11 @@ def main() -> None:
         initial_sidebar_state="collapsed",
     )
 
+    st.markdown(
+        "<style>[data-testid='stToolbar'] {display: none;}</style>",
+        unsafe_allow_html=True,
+    )
+
     init_state()
 
     if st.session_state.usuario is None:

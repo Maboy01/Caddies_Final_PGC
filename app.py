@@ -103,10 +103,12 @@ def predecir_swing(video_bytes: bytes) -> tuple[str, float, dict]:
         tensor = torch.from_numpy(frames).unsqueeze(0)   # (1, T, C, H, W)
         with torch.no_grad():
             probs = F.softmax(model(tensor), dim=1).squeeze().numpy()
+        todas      = {cls: float(p) for cls, p in zip(classes, probs)}
         idx        = int(np.argmax(probs))
         pred_class = classes[idx]
         confianza  = float(probs[idx])
-        todas      = {cls: float(p) for cls, p in zip(classes, probs)}
+        if confianza < 0.60:
+            return "no_golf", confianza, todas
         return pred_class, confianza, todas
     finally:
         tmp.unlink(missing_ok=True)

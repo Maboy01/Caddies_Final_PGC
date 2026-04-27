@@ -75,7 +75,10 @@ def load_video_sequence(
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame = cv2.resize(frame, (frame_size, frame_size), interpolation=cv2.INTER_AREA)
         frame = frame.astype(np.float32) / 255.0
+        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(3, 1, 1)
+        std  = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
         frame = np.transpose(frame, (2, 0, 1))
+        frame = (frame - mean) / std
         frames.append(frame)
 
     capture.release()

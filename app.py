@@ -886,17 +886,7 @@ def main() -> None:
         page_title="Club Serrezuela — Caddies",
         page_icon="⛳",
         layout="wide",
-        initial_sidebar_state="collapsed",
-    )
-
-    st.markdown(
-        """<style>
-        [data-testid="stToolbar"] {display: none !important;}
-        [data-testid="stDecoration"] {display: none !important;}
-        header {visibility: hidden !important;}
-        .stDeployButton {display: none !important;}
-        </style>""",
-        unsafe_allow_html=True,
+        initial_sidebar_state="expanded",
     )
 
     init_state()

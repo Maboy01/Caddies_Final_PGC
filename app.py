@@ -9,6 +9,9 @@ import time
 import tempfile
 from datetime import datetime, timedelta, date, time as dt_time
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+BOGOTA_TZ = ZoneInfo("America/Bogota")
 
 import bcrypt
 import numpy as np
@@ -191,11 +194,11 @@ def pagina_login() -> None:
                         session_data["caddie_id"] = data["id"]
 
                 if st.session_state.usuario:
-                    expires = (datetime.now() + timedelta(hours=24)).isoformat()
+                    expires = (datetime.now(BOGOTA_TZ).replace(tzinfo=None) + timedelta(hours=24)).isoformat()
                     session_data["expires_at"] = expires
                     session = sb.table("sessions").insert(session_data).execute()
                     try:
-                        sb.table("sessions").delete().lt("expires_at", datetime.now().isoformat()).execute()
+                        sb.table("sessions").delete().lt("expires_at", datetime.now(BOGOTA_TZ).replace(tzinfo=None).isoformat()).execute()
                     except Exception:
                         pass
                     st.query_params["token"] = session.data[0]["token"]
@@ -282,7 +285,7 @@ def _tarjeta_caddie(caddie: dict) -> None:
 def _confirmar_reserva(caddie: dict) -> None:
     precio = PRECIOS[caddie["categoria"]]
 
-    hora_actual = datetime.now().time()
+    hora_actual = datetime.now(BOGOTA_TZ).time()
     if hora_actual >= dt_time(18, 0) or hora_actual < dt_time(6, 0):
         st.warning("⚠️ Las reservas solo están disponibles entre las **6:00 AM** y las **6:00 PM**. Intenta de nuevo mañana.")
         if st.button("Volver", use_container_width=True):
@@ -290,7 +293,7 @@ def _confirmar_reserva(caddie: dict) -> None:
             st.rerun()
         return
 
-    hoy = date.today()
+    hoy = datetime.now(BOGOTA_TZ).date()
     min_fecha = hoy if hoy.weekday() != 0 else hoy + timedelta(days=1)
     fecha_juego = st.date_input(
         "Selecciona la fecha de inicio",
@@ -341,7 +344,7 @@ def _confirmar_reserva(caddie: dict) -> None:
                     st.error(f"El turno de las {hora_juego} del {fecha_juego.strftime('%d/%m/%Y')} ya está completo (4/4). Elige otro horario.")
                     return
 
-                fecha      = datetime.now()
+                fecha      = datetime.now(BOGOTA_TZ).replace(tzinfo=None)
                 limite     = fecha + timedelta(hours=8)
                 resultado  = sb.table("reservas").insert({
                     "usuario_username":   username,
@@ -499,7 +502,7 @@ def pagina_mis_reservas() -> None:
         caddie = reserva.get("caddies")
         if not caddie:
             continue
-        ahora      = datetime.now()
+        ahora      = datetime.now(BOGOTA_TZ).replace(tzinfo=None)
         estado     = reserva["estado"]
         activa    = estado == "activa"
         en_curso  = estado == "en_curso"
@@ -706,7 +709,7 @@ def pagina_caddie() -> None:
         socios = sb.table("usuarios").select("username, nombre").in_("username", usernames).execute()
         nombres_map = {s["username"]: s["nombre"] for s in socios.data}
 
-    ahora = datetime.now()
+    ahora = datetime.now(BOGOTA_TZ).replace(tzinfo=None)
     for reserva in reservas:
         socio_nombre = nombres_map.get(reserva["usuario_username"], reserva["usuario_username"])
         fecha        = parse_dt(reserva["fecha_reserva"])
@@ -772,7 +775,7 @@ def dialogo_nuevo_caddie() -> None:
 
 
 def _admin_metricas(reservas_all: list, caddies_all: list) -> None:
-    hoy = date.today().isoformat()
+    hoy = datetime.now(BOGOTA_TZ).date().isoformat()
     n_activas = n_completadas_hoy = 0
     for r in reservas_all:
         estado = r["estado"]
@@ -895,7 +898,7 @@ def main() -> None:
         token = st.query_params.get("token")
         if token:
             sb = get_supabase()
-            session = sb.table("sessions").select("username, rol, caddie_id").eq("token", token).gt("expires_at", datetime.now().isoformat()).execute()
+            session = sb.table("sessions").select("username, rol, caddie_id").eq("token", token).gt("expires_at", datetime.now(BOGOTA_TZ).replace(tzinfo=None).isoformat()).execute()
             if session.data:
                 s = session.data[0]
                 if s.get("rol") == "Caddie" and s.get("caddie_id"):
